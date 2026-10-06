@@ -4,6 +4,7 @@ const captainModel = require('./models/captain.model');
 const mapService = require('./services/maps.service');
 const Redis = require('ioredis');
 const { createAdapter } = require('@socket.io/redis-adapter');
+const jwt = require('jsonwebtoken');
 
 let io;
 
@@ -60,6 +61,17 @@ function initializeSocket(server) {
             }
         });
 
+        socket.on('join-admin', ({ token } = {}) => {
+            try {
+                const decoded = jwt.verify(token, process.env.ADMIN_SECRET_KEY || 'local-admin-secret');
+                if (decoded.role !== 'admin') throw new Error('Invalid admin role');
+                socket.join('admin-room');
+                socket.emit('admin-room-joined');
+            } catch (error) {
+                socket.emit('admin-auth-error', { message: 'Admin authentication failed' });
+            }
+        });
+
 
         socket.on('update-location-captain', async (data) => {
             const { userId, location } = data;
@@ -101,4 +113,15 @@ const sendMessageToRideRoom = (rideId, messageObject) => {
     }
 };
 
-module.exports = { initializeSocket, sendMessageToSocketId, sendMessageToRideRoom };
+const sendMessageToAdminRoom = (messageObject) => {
+    if (io) {
+        io.to('admin-room').emit(messageObject.event, messageObject.data);
+    }
+};
+
+module.exports = {
+    initializeSocket,
+    sendMessageToSocketId,
+    sendMessageToRideRoom,
+    sendMessageToAdminRoom,
+};

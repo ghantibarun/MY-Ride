@@ -78,6 +78,7 @@ const CaptainLogin = () => {
           to='/login'
           className='bg-[#d5622d] flex items-center justify-center text-white font-semibold mb-5 rounded-lg px-4 py-2 w-full text-lg placeholder:text-base'
         >Sign in as User</Link>
+        <Link to='/admin/login' className='block text-center text-xs text-slate-500 hover:text-blue-600'>Admin Portal</Link>
       </div>
     </div>
   )
