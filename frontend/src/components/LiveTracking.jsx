@@ -59,6 +59,23 @@ const LiveTracking = ({ pickupLocation, destinationLocation, onMapClick, activeF
     const [routePoints, setRoutePoints] = useState([]);
 
     useEffect(() => {
+        let wakeLock;
+        const requestWakeLock = async () => {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                } catch (error) {
+                    console.warn('Screen wake lock unavailable:', error.message);
+                }
+            }
+        };
+        requestWakeLock();
+        return () => {
+            if (wakeLock) wakeLock.release().catch(() => {});
+        };
+    }, []);
+
+    useEffect(() => {
         if (!navigator.geolocation) {
             return;
         }

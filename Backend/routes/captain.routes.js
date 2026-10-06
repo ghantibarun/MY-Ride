@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { body } = require("express-validator")
 const authMiddleware = require('../middlewares/auth.middleware');
+const otpController = require('../controllers/otp.controller');
 
 
 router.post('/register', [
@@ -12,7 +13,11 @@ router.post('/register', [
     body('vehicle.color').isLength({ min: 3 }).withMessage('Color must be at least 3 characters long'),
     body('vehicle.plate').isLength({ min: 3 }).withMessage('Plate must be at least 3 characters long'),
     body('vehicle.capacity').isInt({ min: 1 }).withMessage('Capacity must be at least 1'),
-    body('vehicle.vehicleType').isIn([ 'car', 'motorcycle', 'auto' ]).withMessage('Invalid vehicle type')
+    body('vehicle.vehicleType').isIn([ 'car', 'motorcycle', 'auto' ]).withMessage('Invalid vehicle type'),
+    body('phone').optional().isMobilePhone().withMessage('Invalid phone number'),
+    body('drivingLicense').optional().isString(),
+    body('rcNumber').optional().isString(),
+    body('insuranceNumber').optional().isString()
 ],
     captainController.registerCaptain
 )
@@ -24,6 +29,17 @@ router.post('/login', [
 ],
     captainController.loginCaptain
 )
+
+router.post('/send-otp',
+    body('phone').isMobilePhone().withMessage('Invalid phone number'),
+    otpController.captain.send
+);
+
+router.post('/verify-otp',
+    body('phone').isMobilePhone().withMessage('Invalid phone number'),
+    body('otp').isLength({ min: 6, max: 6 }).isNumeric(),
+    otpController.captain.verify
+);
 
 
 router.get('/profile', authMiddleware.authCaptain, captainController.getCaptainProfile)

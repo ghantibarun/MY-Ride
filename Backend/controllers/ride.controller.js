@@ -1,7 +1,7 @@
 const rideService = require('../services/ride.service');
 const { validationResult } = require('express-validator');
 const mapService = require('../services/maps.service');
-const { sendMessageToSocketId } = require('../socket');
+const { sendMessageToSocketId, sendMessageToRideRoom } = require('../socket');
 const rideModel = require('../models/ride.model');
 
 module.exports.createRide = async (req, res) => {
@@ -71,7 +71,7 @@ module.exports.confirmRide = async (req, res) => {
 
         return res.status(200).json(ride);
     } catch (err) {
-        return res.status(500).json({ message: err.message });
+        return res.status(err.statusCode || 500).json({ message: err.message });
     }
 };
 
@@ -168,5 +168,42 @@ module.exports.reviewRide = async (req, res) => {
         return res.status(200).json(ride);
     } catch (err) {
         return res.status(500).json({ message: err.message });
+    }
+};
+
+module.exports.sos = async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    try {
+        const actor = req.user || req.captain;
+        const actorField = req.user ? 'user' : 'captain';
+        const ride = await rideModel.findOne({ _id: req.body.rideId, [actorField]: actor._id })
+            .populate('user')
+            .populate('captain');
+        if (!ride) return res.status(404).json({ message: 'Ride not found' });
+
+        const sos = {
+            rideId: ride._id,
+            triggeredBy: actorField,
+            location: {
+                ltd: Number(req.body.location?.ltd),
+                lng: Number(req.body.location?.lng),
+            },
+            pickup: ride.pickup,
+            destination: ride.destination,
+            timestamp: new Date().toISOString(),
+        };
+        if (!Number.isFinite(sos.location.ltd) || !Number.isFinite(sos.location.lng)) {
+            return res.status(400).json({ message: 'Valid live coordinates are required' });
+        }
+        sendMessageToRideRoom(ride._id, { event: 'ride-sos', data: sos });
+        const counterpart = req.user ? ride.captain : ride.user;
+        if (counterpart?.socketId) {
+            sendMessageToSocketId(counterpart.socketId, { event: 'ride-sos', data: sos });
+        }
+        return res.status(200).json({ message: 'SOS alert sent', sos });
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
     }
 };

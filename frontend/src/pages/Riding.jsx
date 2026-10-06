@@ -27,6 +27,10 @@ const Riding = () => {
         }
     }, [location.state]);
 
+    useEffect(() => {
+        if (ride?._id) socket.emit('join-ride', { rideId: ride._id });
+    }, [ride?._id, socket]);
+
     // 2. Fetch coordinates as soon as we have the ride data
     useEffect(() => {
         const fetchCoordinates = async () => {
@@ -66,13 +70,53 @@ const Riding = () => {
     const handlePayRide = async () => {
         try {
             setIsSubmitting(true);
-            const response = await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/pay`, { rideId: ride?._id }, {
+            const response = await axios.post(`${import.meta.env.VITE_BASE_URL}/payments/orders`, {
+                rideId: ride?._id,
+                method: 'online',
+            }, {
                 headers: {
                     Authorization: `Bearer ${localStorage.getItem('token')}`
                 }
             });
-            setRide(response.data);
-            setPaymentMessage('Payment completed successfully.');
+            if (!response.data.order) {
+                setRide(response.data.ride);
+                setPaymentMessage('Payment is already completed.');
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+            script.async = true;
+            script.onload = () => {
+                const checkout = new window.Razorpay({
+                    key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+                    amount: response.data.order.amount,
+                    currency: response.data.order.currency,
+                    name: 'MY Ride',
+                    order_id: response.data.order.id,
+                    handler: async (paymentResponse) => {
+                        const verified = await axios.post(`${import.meta.env.VITE_BASE_URL}/payments/verify`, {
+                            rideId: ride?._id,
+                            orderId: paymentResponse.razorpay_order_id,
+                            paymentId: paymentResponse.razorpay_payment_id,
+                            signature: paymentResponse.razorpay_signature,
+                            method: 'online',
+                        }, {
+                            headers: {
+                                Authorization: `******'token')}`
+                            }
+                        });
+                        setRide(verified.data);
+                        setPaymentMessage('Payment completed successfully.');
+                    },
+                    modal: {
+                        ondismiss: () => setPaymentMessage('Payment was cancelled.'),
+                    },
+                });
+                checkout.open();
+            };
+            script.onerror = () => setPaymentMessage('Unable to load payment checkout.');
+            document.body.appendChild(script);
         } catch (error) {
             setPaymentMessage(error.response?.data?.message || 'Payment failed.');
         } finally {
@@ -96,6 +140,25 @@ const Riding = () => {
         } finally {
             setIsCancelling(false);
         }
+    };
+
+    const triggerSos = () => {
+        navigator.geolocation?.getCurrentPosition(async (position) => {
+            try {
+                await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/sos`, {
+                    rideId: ride?._id,
+                    location: {
+                        ltd: position.coords.latitude,
+                        lng: position.coords.longitude,
+                    },
+                }, {
+                    headers: { Authorization: `******'token')}` }
+                });
+                setPaymentMessage('SOS alert sent to your ride counterpart.');
+            } catch (error) {
+                setPaymentMessage(error.response?.data?.message || 'Unable to send SOS alert.');
+            }
+        }, () => setPaymentMessage('Location permission is required to send SOS.'));
     };
 
     const handleReviewRide = async (e) => {
@@ -178,6 +241,9 @@ const Riding = () => {
                         {isCancelling ? 'Cancelling...' : 'Cancel Ride'}
                     </button>
                 </div>
+                <button onClick={triggerSos} className='w-full mt-3 bg-red-700 text-white font-bold p-3 rounded-lg'>
+                    Emergency SOS
+                </button>
 
                 <form onSubmit={handleReviewRide} className='mt-5 border-t pt-4 pb-10'>
                     <h3 className='text-lg font-semibold'>Rate your ride</h3>

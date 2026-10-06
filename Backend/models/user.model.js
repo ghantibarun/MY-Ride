@@ -21,6 +21,24 @@ const userSchema = new mongoose.Schema({
         unique: true,
         minlength: [ 5, 'Email must be at least 5 characters long' ],
     },
+    phone: {
+        type: String,
+        unique: true,
+        sparse: true,
+        index: true,
+    },
+    phoneVerified: {
+        type: Boolean,
+        default: false,
+    },
+    otpHash: {
+        type: String,
+        select: false,
+    },
+    otpExpiresAt: {
+        type: Date,
+        select: false,
+    },
     password: {
         type: String,
         required: true,

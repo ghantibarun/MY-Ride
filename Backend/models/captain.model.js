@@ -21,6 +21,24 @@ const captainSchema = new mongoose.Schema({
         lowercase: true,
         match: [ /^\S+@\S+\.\S+$/, 'Please enter a valid email' ]
     },
+    phone: {
+        type: String,
+        unique: true,
+        sparse: true,
+        index: true,
+    },
+    phoneVerified: {
+        type: Boolean,
+        default: false,
+    },
+    otpHash: {
+        type: String,
+        select: false,
+    },
+    otpExpiresAt: {
+        type: Date,
+        select: false,
+    },
     password: {
         type: String,
         required: true,
@@ -29,11 +47,33 @@ const captainSchema = new mongoose.Schema({
     socketId: {
         type: String,
     },
+    locationGeo: {
+        type: {
+            type: String,
+            enum: ['Point'],
+        },
+        coordinates: {
+            type: [Number],
+        },
+    },
 
     status: {
         type: String,
         enum: [ 'active', 'inactive' ],
         default: 'inactive',
+    },
+    kycStatus: {
+        type: String,
+        enum: ['pending', 'verified', 'rejected'],
+        default: 'pending',
+        index: true,
+    },
+    drivingLicense: { type: String, trim: true },
+    rcNumber: { type: String, trim: true },
+    insuranceNumber: { type: String, trim: true },
+    walletBalance: {
+        type: Number,
+        default: 0,
     },
 
     vehicle: {
@@ -85,7 +125,7 @@ captainSchema.statics.hashPassword = async function (password) {
     return await bcrypt.hash(password, 10);
 }
 
-captainSchema.index({ location: '2dsphere' });
+captainSchema.index({ locationGeo: '2dsphere' });
 
 const captainModel = mongoose.model('captain', captainSchema)
 

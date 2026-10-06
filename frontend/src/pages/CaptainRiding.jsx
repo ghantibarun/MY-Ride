@@ -1,9 +1,11 @@
 import React, { useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import axios from 'axios'
 import FinishRide from '../components/FinishRide'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import LiveTracking from '../components/LiveTracking'
+import { SocketContext } from '../context/SocketContext'
 
 const CaptainRiding = () => {
 
@@ -11,6 +13,47 @@ const CaptainRiding = () => {
     const finishRidePanelRef = useRef(null)
     const location = useLocation()
     const rideData = location.state?.ride
+    const { socket } = React.useContext(SocketContext)
+
+    React.useEffect(() => {
+        if (rideData?._id) socket.emit('join-ride', { rideId: rideData._id })
+    }, [rideData?._id, socket])
+
+    React.useEffect(() => {
+        let wakeLock;
+        const requestWakeLock = async () => {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen')
+                } catch (error) {
+                    console.warn('Screen wake lock unavailable:', error.message)
+                }
+            }
+        }
+        requestWakeLock()
+        return () => {
+            if (wakeLock) wakeLock.release().catch(() => {})
+        }
+    }, [])
+
+    const triggerSos = () => {
+        navigator.geolocation?.getCurrentPosition(async (position) => {
+            try {
+                await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/captain-sos`, {
+                    rideId: rideData?._id,
+                    location: {
+                        ltd: position.coords.latitude,
+                        lng: position.coords.longitude,
+                    },
+                }, {
+                    headers: { Authorization: `******'token')}` }
+                });
+                window.alert('SOS alert sent.');
+            } catch (error) {
+                window.alert(error.response?.data?.message || 'Unable to send SOS alert.');
+            }
+        }, () => window.alert('Location permission is required to send SOS.'));
+    };
 
 
 
@@ -48,6 +91,9 @@ const CaptainRiding = () => {
                 <h4 className='text-xl font-semibold'>{'4 KM away'}</h4>
                 <button className=' bg-green-600 text-white font-semibold p-3 px-10 rounded-lg'>Complete Ride</button>
             </div>
+            <button onClick={triggerSos} className='fixed right-5 bottom-28 z-[600] bg-red-700 text-white font-bold p-3 rounded-full'>
+                SOS
+            </button>
             <div ref={finishRidePanelRef} className='fixed w-full z-[500] bottom-0 translate-y-full bg-white px-3 py-10 pt-12'>
                 <FinishRide
                     ride={rideData}

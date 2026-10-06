@@ -1,6 +1,8 @@
 ﻿const rideModel = require('../models/ride.model');
 const mapService = require('./maps.service');
 const crypto = require('crypto');
+const captainModel = require('../models/captain.model');
+const transactionModel = require('../models/transaction.model');
 
 async function getFare(pickup, destination) {
     if (!pickup || !destination) {
@@ -27,10 +29,27 @@ async function getFare(pickup, destination) {
         motorcycle: 1
     };
 
+    const hour = new Date().getHours();
+    const isNight = hour >= 23 || hour < 6;
+    const isPeak = (hour >= 8 && hour < 11) || (hour >= 17 && hour < 21);
+    const surgeMultiplier = isNight ? 1.25 : isPeak ? 1.5 : 1;
+    const gstRate = 0.05;
+    const calculateFare = (vehicleType) => {
+        const subtotal = baseFare[vehicleType]
+            + ((distanceTime.distance.value / 1000) * perKmRate[vehicleType])
+            + ((distanceTime.duration.value / 60) * perMinuteRate[vehicleType]);
+        const surgedSubtotal = subtotal * surgeMultiplier;
+        return Math.round(surgedSubtotal * (1 + gstRate));
+    };
+
     const fare = {
-        auto: Math.round(baseFare.auto + ((distanceTime.distance.value / 1000) * perKmRate.auto) + ((distanceTime.duration.value / 60) * perMinuteRate.auto)),
-        car: Math.round(baseFare.car + ((distanceTime.distance.value / 1000) * perKmRate.car) + ((distanceTime.duration.value / 60) * perMinuteRate.car)),
-        motorcycle: Math.round(baseFare.motorcycle + ((distanceTime.distance.value / 1000) * perKmRate.motorcycle) + ((distanceTime.duration.value / 60) * perMinuteRate.motorcycle))
+        auto: calculateFare('auto'),
+        car: calculateFare('car'),
+        motorcycle: calculateFare('motorcycle'),
+        distanceKm: Number((distanceTime.distance.value / 1000).toFixed(2)),
+        durationMinutes: Number((distanceTime.duration.value / 60).toFixed(1)),
+        surgeMultiplier,
+        gstRate,
     };
 
     return fare;
@@ -78,13 +97,15 @@ module.exports.confirmRide = async ({ rideId, captain }) => {
         throw new Error('Ride id is required');
     }
 
-    const ride = await rideModel.findOneAndUpdate({ _id: rideId }, {
+    const ride = await rideModel.findOneAndUpdate({ _id: rideId, status: 'pending' }, {
         status: 'accepted',
         captain: captain._id
     }, { new: true }).populate('user').populate('captain').select('+otp');
 
     if (!ride) {
-        throw new Error('Ride not found');
+        const error = new Error('Ride is no longer available');
+        error.statusCode = 409;
+        throw error;
     }
 
     return ride;
@@ -131,9 +152,49 @@ module.exports.endRide = async ({ rideId, captain }) => {
         throw new Error('Ride not ongoing');
     }
 
-    const endedRide = await rideModel.findOneAndUpdate({ _id: rideId }, {
+    const endedRide = await rideModel.findOneAndUpdate({ _id: rideId, status: 'ongoing' }, {
         status: 'completed'
     }, { new: true }).populate('user').populate('captain').select('+otp');
+
+    if (!endedRide) {
+        throw new Error('Ride is no longer ongoing');
+    }
+
+    const paymentMethod = endedRide.paymentMethod || 'cash';
+    const fare = Number(endedRide.fare);
+    const commission = Number((fare * 0.15).toFixed(2));
+    const captainAmount = Number((fare * 0.85).toFixed(2));
+    const transactionType = paymentMethod === 'cash' ? 'commission' : 'captain_earning';
+    const transactionAmount = paymentMethod === 'cash' ? commission : captainAmount;
+    const existingTransaction = await transactionModel.findOne({
+        ride: endedRide._id,
+        type: transactionType,
+    });
+
+    if (!existingTransaction) {
+        try {
+            await transactionModel.create({
+                ride: endedRide._id,
+                captain: endedRide.captain._id,
+                type: transactionType,
+                method: paymentMethod,
+                amount: transactionAmount,
+                reference: `ride_${endedRide._id}_${transactionType}`,
+            });
+            await captainModel.findByIdAndUpdate(endedRide.captain._id, {
+                $inc: { walletBalance: paymentMethod === 'cash' ? -commission : captainAmount },
+            });
+        } catch (error) {
+            if (error.code !== 11000) throw error;
+        }
+    }
+
+    if (paymentMethod === 'cash' && endedRide.paymentStatus !== 'paid') {
+        endedRide.paymentStatus = 'paid';
+        endedRide.paymentAmount = fare;
+        endedRide.paidAt = new Date();
+        await endedRide.save();
+    }
 
     return endedRide;
 };

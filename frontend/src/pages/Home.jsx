@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useContext } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useContext } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import axios from 'axios';
@@ -100,7 +100,7 @@ const Home = () => {
         setIsMapSelectMode(false);
     };
 
-    const selectLocationFromCoordinates = async (lat, lng, field) => {
+    const selectLocationFromCoordinates = useCallback(async (lat, lng, field) => {
         const address = await reverseGeocode(lat, lng);
         if (field === 'pickup') {
             setPickup(address);
@@ -114,9 +114,9 @@ const Home = () => {
             setPanelOpen(false);
         }
         return address;
-    };
+    }, []);
 
-    const requestCurrentLocation = async (targetField = 'pickup') => {
+    const requestCurrentLocation = useCallback(async (targetField = 'pickup') => {
         if (!navigator.geolocation) return;
         setIsGettingCurrentLocation(true);
         navigator.geolocation.getCurrentPosition(
@@ -129,9 +129,11 @@ const Home = () => {
             () => { setIsGettingCurrentLocation(false); },
             { enableHighAccuracy: true, timeout: 12000 }
         );
-    };
+    }, [selectLocationFromCoordinates]);
 
-    useEffect(() => { if (!pickup) requestCurrentLocation('pickup'); }, []);
+    useEffect(() => {
+        if (!pickup) requestCurrentLocation('pickup');
+    }, [pickup, requestCurrentLocation]);
 
     const handleUseCurrentLocation = async () => {
         await requestCurrentLocation('pickup');
@@ -190,7 +192,7 @@ const Home = () => {
                 const suggestions = await fetchSuggestions(e.target.value, biasCoords);
                 setPickupSuggestions(suggestions);
             } catch (error) { console.error("Pickup search failed"); }
-        }, 500);
+        }, 400);
     };
 
     const handleDestinationChange = (e) => {
@@ -203,7 +205,7 @@ const Home = () => {
                 const suggestions = await fetchSuggestions(e.target.value, biasCoords);
                 setDestinationSuggestions(suggestions);
             } catch (error) { console.error("Destination search failed"); }
-        }, 500);
+        }, 400);
     };
 
     // ==========================================
@@ -366,7 +368,7 @@ const Home = () => {
                     </div>
                 </div>
                 <div className='flex-1 overflow-y-auto p-5 bg-white mt-2 shadow-inner pointer-events-auto'>
-                    <LocationSearchPanel suggestions={activeField === 'pickup' ? pickupSuggestions : destinationSuggestions} activeField={activeField} onSuggestionSelect={handleSuggestionSelect} onUseCurrentLocation={handleUseCurrentLocation} isGettingCurrentLocation={isGettingCurrentLocation} onSelectMap={() => { setActiveField(activeField || 'pickup'); setIsMapSelectMode(true); setPanelOpen(false); }} />
+                    <LocationSearchPanel suggestions={activeField === 'pickup' ? pickupSuggestions : destinationSuggestions} activeField={activeField} onSuggestionSelect={handleSuggestionSelect} onUseCurrentLocation={handleUseCurrentLocation} isGettingCurrentLocation={isGettingCurrentLocation} onSelectMap={startMapSelection} />
                 </div>
             </div>
 

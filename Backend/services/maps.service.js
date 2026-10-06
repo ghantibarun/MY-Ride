@@ -1,5 +1,40 @@
 const axios = require('axios');
 const captainModel = require('../models/captain.model');
+const Redis = require('ioredis');
+
+const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+}) : null;
+const captainGeoKey = 'captains:locations';
+const geocodeCache = new Map();
+const routeCache = new Map();
+const suggestionCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+function readCache(cache, key) {
+    const value = cache.get(key);
+    if (!value || value.expiresAt < Date.now()) {
+        cache.delete(key);
+        return null;
+    }
+    return value.data;
+}
+
+function writeCache(cache, key, data, ttl = CACHE_TTL_MS) {
+    if (cache.size >= 500) cache.delete(cache.keys().next().value);
+    cache.set(key, { data, expiresAt: Date.now() + ttl });
+    return data;
+}
+
+if (redis) {
+    redis.connect().catch((error) => {
+        console.error('Redis geospatial connection error:', error.message);
+    });
+    redis.on('error', (error) => {
+        console.error('Redis error:', error.message);
+    });
+}
 
 // ==========================================
 // 1. GEOCODING (Upgraded to Photon API)
@@ -8,6 +43,10 @@ async function geocodeAddress(address) {
     if (!address) {
         throw new Error('Address is required');
     }
+
+    const cacheKey = address.trim().toLowerCase();
+    const cached = readCache(geocodeCache, cacheKey);
+    if (cached) return cached;
 
     // Photon API perfectly understands the detailed addresses sent by the frontend
     const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(address)}&limit=1`;
@@ -21,10 +60,10 @@ async function geocodeAddress(address) {
 
         // Photon returns coordinates as [longitude, latitude]
         const coords = response.data.features[0].geometry.coordinates;
-        return {
+        return writeCache(geocodeCache, cacheKey, {
             lat: parseFloat(coords[1]),
             lng: parseFloat(coords[0])
-        };
+        });
     } catch (error) {
         console.error("Geocoding Error:", error.message);
         throw error;
@@ -50,6 +89,10 @@ module.exports.getDistanceTime = async (origin, destination) => {
         throw new Error('Origin and destination are required');
     }
 
+    const routeKey = `${origin.trim().toLowerCase()}|${destination.trim().toLowerCase()}`;
+    const cachedRoute = readCache(routeCache, routeKey);
+    if (cachedRoute) return cachedRoute;
+
     const originCoords = await geocodeAddress(origin);
     const destinationCoords = await geocodeAddress(destination);
 
@@ -71,13 +114,13 @@ module.exports.getDistanceTime = async (origin, destination) => {
         const trafficDelayMultiplier = 1.80; 
         const realisticTime = route.duration * trafficDelayMultiplier;
 
-        return {
+        return writeCache(routeCache, routeKey, {
             status: 'OK',
             distance: { value: Math.round(realisticDistance) },
             duration: { value: Math.round(realisticTime) },
             origin: originCoords,
             destination: destinationCoords
-        };
+        });
     } catch (err) {
         console.error("OSRM Route Error:", err.message);
         throw err;
@@ -113,6 +156,9 @@ module.exports.getAutoCompleteSuggestions = async (input, options = {}) => {
 
     const { lat, lng } = options;
     const hasBiasPoint = Number.isFinite(lat) && Number.isFinite(lng);
+    const cacheKey = `${input.trim().toLowerCase()}|${hasBiasPoint ? `${lat},${lng}` : ''}`;
+    const cachedSuggestions = readCache(suggestionCache, cacheKey,);
+    if (cachedSuggestions) return cachedSuggestions;
 
     let url = `https://photon.komoot.io/api/?q=${encodeURIComponent(input)}&limit=10`;
     
@@ -144,7 +190,7 @@ module.exports.getAutoCompleteSuggestions = async (input, options = {}) => {
             })).sort((a, b) => a.distanceKm - b.distanceKm);
         }
 
-        return items.slice(0, 6).map((item) => item.name);
+        return writeCache(suggestionCache, cacheKey, items.slice(0, 6).map((item) => item.name), 60 * 1000);
 
     } catch (err) {
         console.error("Suggestion Error:", err.message);
@@ -156,13 +202,44 @@ module.exports.getAutoCompleteSuggestions = async (input, options = {}) => {
 // 5. DATABASE QUERIES
 // ==========================================
 module.exports.getCaptainsInTheRadius = async (ltd, lng, radius) => {
-    const captains = await captainModel.find({
-        location: {
+    if (redis && redis.status === 'ready') {
+        try {
+            const captainIds = await redis.geosearch(
+                captainGeoKey,
+                'FROMLONLAT',
+                lng,
+                ltd,
+                'BYRADIUS',
+                radius,
+                'km'
+            );
+            return captainModel.find({
+                _id: { $in: captainIds },
+                status: 'active',
+                kycStatus: 'verified',
+            });
+        } catch (error) {
+            console.error('Redis geospatial lookup error:', error.message);
+        }
+    }
+
+    return captainModel.find({
+        status: 'active',
+        kycStatus: 'verified',
+        locationGeo: {
             $geoWithin: {
                 $centerSphere: [[lng, ltd], radius / 6371]
             }
         }
     });
+};
 
-    return captains;
+module.exports.updateCaptainLocation = async (captainId, ltd, lng) => {
+    if (redis && redis.status === 'ready') {
+        try {
+            await redis.geoadd(captainGeoKey, lng, ltd, String(captainId));
+        } catch (error) {
+            console.error('Redis location update error:', error.message);
+        }
+    }
 };

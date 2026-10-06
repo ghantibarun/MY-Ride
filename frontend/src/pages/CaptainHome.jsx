@@ -7,7 +7,7 @@ import gsap from 'gsap'
 import ConfirmRidePopUp from '../components/ConfirmRidePopUp'
 import { useEffect, useContext } from 'react'
 import { SocketContext } from '../context/SocketContext'
-import { CaptainDataContext } from '../context/CapatainContext'
+import { CaptainDataContext } from '../context/CaptainContext'
 import axios from 'axios'
 
 const CaptainHome = () => {
@@ -23,6 +23,8 @@ const CaptainHome = () => {
     const { captain } = useContext(CaptainDataContext)
 
     useEffect(() => {
+        if (!captain?._id) return undefined;
+
         socket.emit('join', {
             userId: captain._id,
             userType: 'captain'
@@ -45,19 +47,21 @@ const CaptainHome = () => {
         const locationInterval = setInterval(updateLocation, 10000)
         updateLocation()
 
-        // return () => clearInterval(locationInterval)
-    }, [])
+        const handleNewRide = (data) => {
+            setRide(data)
+            setRidePopupPanel(true)
+        }
+        socket.on('new-ride', handleNewRide)
 
-    socket.on('new-ride', (data) => {
-
-        setRide(data)
-        setRidePopupPanel(true)
-
-    })
+        return () => {
+            clearInterval(locationInterval)
+            socket.off('new-ride', handleNewRide)
+        }
+    }, [captain?._id, socket])
 
     async function confirmRide() {
 
-        const response = await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/confirm`, {
+        await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/confirm`, {
 
             rideId: ride._id,
             captainId: captain._id,

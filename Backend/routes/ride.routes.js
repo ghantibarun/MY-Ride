@@ -59,4 +59,20 @@ router.post('/review',
     rideController.reviewRide
 );
 
+router.post('/sos',
+    authMiddleware.authUser,
+    body('rideId').isMongoId().withMessage('Invalid ride id'),
+    body('location.ltd').isFloat({ min: -90, max: 90 }),
+    body('location.lng').isFloat({ min: -180, max: 180 }),
+    rideController.sos
+);
+
+router.post('/captain-sos',
+    authMiddleware.authCaptain,
+    body('rideId').isMongoId().withMessage('Invalid ride id'),
+    body('location.ltd').isFloat({ min: -90, max: 90 }),
+    body('location.lng').isFloat({ min: -180, max: 180 }),
+    rideController.sos
+);
+
 module.exports = router;
