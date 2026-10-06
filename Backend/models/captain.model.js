@@ -75,6 +75,27 @@ const captainSchema = new mongoose.Schema({
         type: Number,
         default: 0,
     },
+    isBlocked: {
+        type: Boolean,
+        default: false,
+        index: true,
+    },
+    blockReason: {
+        type: String,
+        default: '',
+    },
+    deletionRequested: {
+        type: Boolean,
+        default: false,
+    },
+    deletionReason: {
+        type: String,
+        default: '',
+    },
+    deletionRequestedAt: {
+        type: Date,
+        default: null,
+    },
 
     vehicle: {
         color: {
@@ -128,7 +149,7 @@ captainSchema.statics.hashPassword = async function (password) {
 
 captainSchema.index({ locationGeo: '2dsphere' });
 
-const captainModel = mongoose.model('captain', captainSchema)
+const captainModel = mongoose.models.captain || mongoose.model('captain', captainSchema)
 
 
 module.exports = captainModel;

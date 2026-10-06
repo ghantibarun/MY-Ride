@@ -39,6 +39,7 @@ const ConfirmRide = (props) => {
                     props.createRide()
 
                 }} className='w-full mt-5 bg-green-600 text-white font-semibold p-2 rounded-lg'>Confirm</button>
+                <button onClick={() => props.onCancel?.()} className='w-full mt-2 border border-gray-300 text-gray-700 font-semibold p-2 rounded-lg'>Back / Cancel Ride</button>
             </div>
         </div>
     )

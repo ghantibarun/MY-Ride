@@ -8,6 +8,7 @@ const VehiclePanel = (props) => {
             }}>
                 <i className="text-3xl text-gray-400 ri-arrow-down-wide-line"></i>
             </h5>
+            <button onClick={() => props.onCancel?.()} className='text-sm text-red-600 font-semibold mb-3'>Cancel Ride</button>
             
             <h3 className='text-2xl font-semibold mb-5 text-gray-900'>Choose a Vehicle</h3>
 

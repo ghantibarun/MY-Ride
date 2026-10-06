@@ -47,7 +47,19 @@ const userSchema = new mongoose.Schema({
     socketId: {
         type: String,
     },
-})
+    deletionRequested: {
+        type: Boolean,
+        default: false,
+    },
+    deletionReason: {
+        type: String,
+        default: '',
+    },
+    deletionRequestedAt: {
+        type: Date,
+        default: null,
+    },
+});
 
 userSchema.methods.generateAuthToken = function () {
     const secret = process.env.JWT_SECRET || 'my_ride_super_secret_jwt_key_2026';
@@ -63,7 +75,7 @@ userSchema.statics.hashPassword = async function (password) {
     return await bcrypt.hash(password, 10);
 }
 
-const userModel = mongoose.model('user', userSchema);
+const userModel = mongoose.models.user || mongoose.model('user', userSchema);
 
 
 module.exports = userModel;

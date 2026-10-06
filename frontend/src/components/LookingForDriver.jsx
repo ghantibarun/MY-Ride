@@ -16,6 +16,10 @@ const LookingForDriver = (props) => {
 
   // Timer & Tip rotation effect
   useEffect(() => {
+    if (!props.isSearching) {
+      setElapsedTime(0);
+      return undefined;
+    }
     const timer = setInterval(() => {
       setElapsedTime((prev) => prev + 1);
     }, 1000);
@@ -28,7 +32,7 @@ const LookingForDriver = (props) => {
       clearInterval(timer);
       clearInterval(tipInterval);
     };
-  }, [tips.length]);
+  }, [props.isSearching, props.rideId, tips.length]);
 
   // Format seconds into MM:SS
   const formatTime = (seconds) => {
@@ -147,6 +151,9 @@ const LookingForDriver = (props) => {
       >
         <i className="ri-close-circle-line text-lg"></i>
         {isCancelling ? 'Cancelling Request...' : 'Cancel Search'}
+      </button>
+      <button onClick={() => props.onCancel?.()} disabled={isCancelling} className='w-full mt-2 border border-gray-300 text-gray-700 font-semibold py-3 rounded-xl'>
+        Back
       </button>
     </div>
   );

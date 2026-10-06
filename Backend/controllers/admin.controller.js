@@ -5,7 +5,8 @@ const captainModel = require('../models/captain.model');
 const rideModel = require('../models/ride.model');
 const transactionModel = require('../models/transaction.model');
 const sosAlertModel = require('../models/sosAlert.model');
-const { sendMessageToSocketId } = require('../socket');
+const mapService = require('../services/maps.service');
+const { sendMessageToSocketId, sendMessageToAdminRoom } = require('../socket');
 
 const adminEmail = () => process.env.ADMIN_EMAIL || 'admin@myride.local';
 const adminPassword = () => process.env.ADMIN_PASSWORD || 'Barun123';
@@ -64,9 +65,82 @@ module.exports.listCaptains = async (req, res) => {
 
     try {
         const captains = await captainModel.find(filter)
-            .select('fullname phone email vehicle drivingLicense rcNumber insuranceNumber kycStatus walletBalance')
+            .select('fullname phone email vehicle drivingLicense rcNumber insuranceNumber kycStatus walletBalance isBlocked blockReason deletionRequested deletionReason deletionRequestedAt socketId')
             .sort({ createdAt: -1 });
         return res.status(200).json(captains);
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+
+module.exports.listUsers = async (req, res) => {
+    const filter = req.query.deletionRequested === 'true' ? { deletionRequested: true } : {};
+    try {
+        const users = await userModel.find(filter)
+            .select('fullname email phone deletionRequested deletionReason deletionRequestedAt')
+            .sort({ createdAt: -1 });
+        return res.status(200).json(users);
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+
+module.exports.blockCaptain = async (req, res) => {
+    const { isBlocked, blockReason = '' } = req.body;
+    if (typeof isBlocked !== 'boolean') {
+        return res.status(400).json({ message: 'isBlocked must be a boolean' });
+    }
+    try {
+        const captain = await captainModel.findByIdAndUpdate(req.params.captainId, {
+            isBlocked,
+            blockReason: isBlocked ? String(blockReason).trim() : '',
+            ...(isBlocked ? { status: 'inactive' } : {}),
+        }, { new: true }).select('fullname phone email vehicle kycStatus walletBalance isBlocked blockReason deletionRequested deletionReason deletionRequestedAt socketId');
+        if (!captain) return res.status(404).json({ message: 'Captain not found' });
+
+        if (isBlocked) await mapService.removeCaptainLocation(captain._id);
+        if (captain.socketId) {
+            sendMessageToSocketId(captain.socketId, {
+                event: isBlocked ? 'captain-blocked' : 'captain-unblocked',
+                data: { captainId: captain._id, blockReason: captain.blockReason },
+            });
+        }
+        return res.status(200).json(captain);
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+
+module.exports.deleteUser = async (req, res) => {
+    try {
+        const user = await userModel.findById(req.params.userId).select('socketId');
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        await rideModel.updateMany(
+            { user: user._id, status: { $in: ['pending', 'accepted'] } },
+            { status: 'cancelled', cancellationReason: 'User account deleted', cancelledBy: 'system' }
+        );
+        await userModel.deleteOne({ _id: user._id });
+        if (user.socketId) sendMessageToSocketId(user.socketId, { event: 'account-deleted', data: { accountType: 'user' } });
+        sendMessageToAdminRoom({ event: 'admin-account-deleted', data: { accountType: 'user', accountId: user._id } });
+        return res.status(200).json({ message: 'User account deleted' });
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+
+module.exports.deleteCaptain = async (req, res) => {
+    try {
+        const captain = await captainModel.findById(req.params.captainId).select('socketId');
+        if (!captain) return res.status(404).json({ message: 'Captain not found' });
+        await rideModel.updateMany(
+            { captain: captain._id, status: { $in: ['pending', 'accepted'] } },
+            { status: 'cancelled', cancellationReason: 'Captain account deleted', cancelledBy: 'system' }
+        );
+        await mapService.removeCaptainLocation(captain._id);
+        await captainModel.deleteOne({ _id: captain._id });
+        if (captain.socketId) sendMessageToSocketId(captain.socketId, { event: 'account-deleted', data: { accountType: 'captain' } });
+        sendMessageToAdminRoom({ event: 'admin-account-deleted', data: { accountType: 'captain', accountId: captain._id } });
+        return res.status(200).json({ message: 'Captain account deleted' });
     } catch (error) {
         return res.status(500).json({ message: error.message });
     }

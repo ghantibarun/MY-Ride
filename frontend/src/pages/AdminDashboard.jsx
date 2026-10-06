@@ -5,7 +5,8 @@ import { SocketContext } from '../context/SocketContext'
 const tabs = [
   { key: 'kyc', label: 'Captain KYC' },
   { key: 'sos', label: 'Live SOS' },
-  { key: 'overview', label: 'City Overview' }
+  { key: 'overview', label: 'City Overview' },
+  { key: 'accounts', label: 'Accounts & Deletions' }
 ]
 
 const AdminDashboard = () => {
@@ -15,8 +16,11 @@ const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('kyc')
   const [kycFilter, setKycFilter] = useState('pending')
   const [captains, setCaptains] = useState([])
+  const [allCaptains, setAllCaptains] = useState([])
   const [alerts, setAlerts] = useState([])
   const [stats, setStats] = useState(null)
+  const [users, setUsers] = useState([])
+  const [accountFilter, setAccountFilter] = useState('all')
   const [message, setMessage] = useState('')
 
   const loadCaptains = useCallback(async () => {
@@ -28,12 +32,16 @@ const AdminDashboard = () => {
   }, [headers, kycFilter])
 
   const loadDashboard = useCallback(async () => {
-    const [statsResponse, sosResponse] = await Promise.all([
+    const [statsResponse, sosResponse, usersResponse, captainsResponse] = await Promise.all([
       axios.get(`${import.meta.env.VITE_BASE_URL}/admin/stats`, { headers }),
-      axios.get(`${import.meta.env.VITE_BASE_URL}/admin/sos`, { headers })
+      axios.get(`${import.meta.env.VITE_BASE_URL}/admin/sos`, { headers }),
+      axios.get(`${import.meta.env.VITE_BASE_URL}/admin/users`, { headers }),
+      axios.get(`${import.meta.env.VITE_BASE_URL}/admin/captains`, { headers })
     ])
     setStats(statsResponse.data)
     setAlerts(sosResponse.data)
+    setUsers(usersResponse.data)
+    setAllCaptains(captainsResponse.data)
   }, [headers])
 
   useEffect(() => {
@@ -46,6 +54,10 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     const joinAdminRoom = () => socket.emit('join-admin', { token })
+    const receiveDeletionRequest = () => {
+      loadDashboard().catch(() => setMessage('Unable to refresh deletion requests.'))
+      setMessage('New account deletion request received.')
+    }
     const receiveAlert = (alert) => {
       setAlerts((current) => [alert, ...current.filter((item) => String(item.sosId) !== String(alert.sosId))])
       setActiveTab('sos')
@@ -63,12 +75,14 @@ const AdminDashboard = () => {
     }
     socket.on('connect', joinAdminRoom)
     socket.on('admin-sos-alert', receiveAlert)
+    socket.on('admin-deletion-request', receiveDeletionRequest)
     if (socket.connected) joinAdminRoom()
     return () => {
       socket.off('connect', joinAdminRoom)
       socket.off('admin-sos-alert', receiveAlert)
+      socket.off('admin-deletion-request', receiveDeletionRequest)
     }
-  }, [socket, token])
+  }, [loadDashboard, socket, token])
 
   const updateKyc = async (captainId, kycStatus) => {
     try {
@@ -87,6 +101,35 @@ const AdminDashboard = () => {
       setAlerts((current) => current.map((alert) => String(alert._id || alert.sosId) === String(alertId) ? { ...alert, status: 'resolved' } : alert))
     } catch {
       setMessage('Unable to resolve SOS alert.')
+    }
+  }
+
+  const toggleCaptainBlock = async (captain) => {
+      const isBlocked = !captain.isBlocked
+      const blockReason = isBlocked ? window.prompt('Reason for blocking this captain:') : ''
+      if (isBlocked && !blockReason?.trim()) return
+      try {
+        const response = await axios.patch(`${import.meta.env.VITE_BASE_URL}/admin/captains/${captain._id}/block`, { isBlocked, blockReason }, { headers })
+        setCaptains((current) => current.map((item) => item._id === captain._id ? response.data : item))
+        setAllCaptains((current) => current.map((item) => item._id === captain._id ? response.data : item))
+        setMessage(isBlocked ? 'Captain blocked.' : 'Captain unblocked.')
+      } catch {
+        setMessage('Unable to update captain block status.')
+      }
+    }
+
+  const deleteAccount = async (accountType, accountId) => {
+      if (!window.confirm('Permanently delete this account? This cannot be undone.')) return
+      try {
+        await axios.delete(`${import.meta.env.VITE_BASE_URL}/admin/${accountType === 'user' ? 'users' : 'captains'}/${accountId}`, { headers })
+        if (accountType === 'user') setUsers((current) => current.filter((item) => item._id !== accountId))
+        else {
+          setCaptains((current) => current.filter((item) => item._id !== accountId))
+          setAllCaptains((current) => current.filter((item) => item._id !== accountId))
+        }
+        setMessage('Account permanently deleted.')
+      } catch {
+        setMessage('Unable to delete account.')
     }
   }
 
@@ -123,7 +166,7 @@ const AdminDashboard = () => {
               {captains.map((captain) => (
                 <article key={captain._id} className='bg-white rounded-xl p-5 shadow-sm'>
                   <div className='flex flex-wrap justify-between gap-4'>
-                    <div><h3 className='text-lg font-bold'>{captain.fullname?.firstname} {captain.fullname?.lastname}</h3><p className='text-sm text-slate-500'>{captain.email} · {captain.phone || 'No phone'}</p></div>
+                    <div><h3 className='text-lg font-bold'>{captain.fullname?.firstname} {captain.fullname?.lastname}</h3><p className='text-sm text-slate-500'>{captain.email} · {captain.phone || 'No phone'}</p><div className='flex gap-2 mt-2'>{captain.isBlocked && <span className='bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold'>BLOCKED</span>}{captain.deletionRequested && <span className='bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold'>DELETION REQUESTED: {captain.deletionReason}</span>}</div></div>
                     <p className='font-semibold text-emerald-600'>Wallet ₹{Number(captain.walletBalance || 0).toFixed(2)}</p>
                   </div>
                   <div className='grid md:grid-cols-2 gap-3 mt-4 text-sm'>
@@ -132,7 +175,7 @@ const AdminDashboard = () => {
                     <p><strong>RC:</strong> {captain.rcNumber || 'Not provided'}</p>
                     <p><strong>Insurance:</strong> {captain.insuranceNumber || 'Not provided'}</p>
                   </div>
-                  {kycFilter === 'pending' && <div className='flex gap-3 mt-5'><button onClick={() => updateKyc(captain._id, 'verified')} className='bg-emerald-600 text-white rounded-lg px-4 py-2 font-semibold'>Approve</button><button onClick={() => updateKyc(captain._id, 'rejected')} className='bg-red-600 text-white rounded-lg px-4 py-2 font-semibold'>Reject</button></div>}
+                  <div className='flex flex-wrap gap-3 mt-5'>{kycFilter === 'pending' && <><button onClick={() => updateKyc(captain._id, 'verified')} className='bg-emerald-600 text-white rounded-lg px-4 py-2 font-semibold'>Approve</button><button onClick={() => updateKyc(captain._id, 'rejected')} className='bg-red-600 text-white rounded-lg px-4 py-2 font-semibold'>Reject</button></>}<button onClick={() => toggleCaptainBlock(captain)} className='bg-slate-800 text-white rounded-lg px-4 py-2 font-semibold'>{captain.isBlocked ? 'Unblock Captain' : 'Block Captain'}</button><button onClick={() => deleteAccount('captain', captain._id)} className='border border-red-600 text-red-600 rounded-lg px-4 py-2 font-semibold'>Delete Captain ID</button></div>
                 </article>
               ))}
             </div>
@@ -165,6 +208,17 @@ const AdminDashboard = () => {
           <section><h2 className='text-2xl font-bold mb-5'>City Overview & Ledger</h2><div className='grid sm:grid-cols-2 lg:grid-cols-5 gap-4'>{[
             ['Total Users', stats?.totalUsers || 0], ['Verified Captains', stats?.captainsByKycStatus?.verified || 0], ['Active Rides', stats?.activeRides || 0], ['Completed Rides', stats?.completedRides || 0], ['Platform Commission', `₹${Number(stats?.totalPlatformCommission || 0).toFixed(2)}`]
           ].map(([label, value]) => <div key={label} className='bg-white rounded-xl p-5 shadow-sm'><p className='text-sm text-slate-500'>{label}</p><p className='text-2xl font-bold mt-2'>{value}</p></div>)}</div></section>
+        )}
+
+        {activeTab === 'accounts' && (
+          <section>
+            <div className='flex flex-wrap items-center justify-between gap-3 mb-5'><div><h2 className='text-2xl font-bold'>Users & Deletion Requests</h2><p className='text-slate-500'>Review and permanently remove user accounts.</p></div><select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)} className='border rounded-lg px-3 py-2 bg-white'><option value='all'>All Accounts</option><option value='deletion'>Deletion Requests Only</option></select></div>
+            <div className='grid gap-4'>
+              {users.filter((user) => accountFilter === 'all' || user.deletionRequested).map((user) => <article key={`user-${user._id}`} className='bg-white rounded-xl p-5 shadow-sm flex flex-wrap items-center justify-between gap-4'><div><h3 className='font-bold'>User: {user.fullname?.firstname} {user.fullname?.lastname}</h3><p className='text-sm text-slate-500'>{user.email} · {user.phone || 'No phone'}</p>{user.deletionRequested && <p className='text-sm text-orange-700 mt-2'>Reason: {user.deletionReason}</p>}</div><button onClick={() => deleteAccount('user', user._id)} className='bg-red-600 text-white rounded-lg px-4 py-2 font-semibold'>Approve & Delete Account</button></article>)}
+              {allCaptains.filter((captain) => accountFilter === 'all' || captain.deletionRequested).map((captain) => <article key={`captain-${captain._id}`} className='bg-white rounded-xl p-5 shadow-sm flex flex-wrap items-center justify-between gap-4'><div><h3 className='font-bold'>Captain: {captain.fullname?.firstname} {captain.fullname?.lastname}</h3><p className='text-sm text-slate-500'>{captain.email} · {captain.phone || 'No phone'}</p>{captain.deletionRequested && <p className='text-sm text-orange-700 mt-2'>Reason: {captain.deletionReason}</p>}</div><button onClick={() => deleteAccount('captain', captain._id)} className='bg-red-600 text-white rounded-lg px-4 py-2 font-semibold'>Approve & Delete Account</button></article>)}
+              {users.filter((user) => accountFilter === 'all' || user.deletionRequested).length === 0 && allCaptains.filter((captain) => accountFilter === 'all' || captain.deletionRequested).length === 0 && <div className='bg-white rounded-xl p-8 text-center text-slate-500'>No matching accounts.</div>}
+            </div>
+          </section>
         )}
       </div>
     </main>

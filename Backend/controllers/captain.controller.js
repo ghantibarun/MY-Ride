@@ -2,6 +2,7 @@ const captainModel = require('../models/captain.model');
 const captainService = require('../services/captain.service');
 const blackListTokenModel = require('../models/blackListToken.model');
 const { validationResult } = require('express-validator');
+const { sendMessageToAdminRoom } = require('../socket');
 
 
 module.exports.registerCaptain = async (req, res, next) => {
@@ -64,6 +65,13 @@ module.exports.loginCaptain = async (req, res, next) => {
         return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    if (captain.isBlocked) {
+        return res.status(403).json({
+            message: `Your Captain account has been blocked by Admin: ${captain.blockReason || 'Policy violation'}`,
+            isBlocked: true,
+        });
+    }
+
     const isMatch = await captain.comparePassword(password);
 
     if (!isMatch) {
@@ -95,3 +103,20 @@ module.exports.logoutCaptain = async (req, res, next) => {
 
     res.status(200).json({ message: 'Logout successfully' });
 }
+
+module.exports.requestDeletion = async (req, res) => {
+    const reason = typeof req.body.reason === 'string' ? req.body.reason.trim() : '';
+    if (!reason) return res.status(400).json({ message: 'A deletion reason is required' });
+
+    const captain = await captainModel.findByIdAndUpdate(req.captain._id, {
+        deletionRequested: true,
+        deletionReason: reason,
+        deletionRequestedAt: new Date(),
+    }, { new: true }).select('fullname email phone deletionRequested deletionReason deletionRequestedAt');
+
+    sendMessageToAdminRoom({
+        event: 'admin-deletion-request',
+        data: { accountType: 'captain', account: captain },
+    });
+    return res.status(200).json(captain);
+};

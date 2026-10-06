@@ -30,6 +30,10 @@ const WaitingForDriver = (props) => {
   const handleCancelRide = async () => {
     try {
       setIsCancelling(true);
+      if (props.onCancel) {
+        await props.onCancel();
+        return;
+      }
       await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/cancel`, { rideId: props.ride?._id, reason: 'Cancelled by rider' }, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('token')}`
@@ -121,6 +125,9 @@ const WaitingForDriver = (props) => {
 
       {/* Interactive Actions at the Bottom */}
       <div className='flex gap-3 mt-4'>
+        <button onClick={() => props.onCancel?.()} disabled={isCancelling} className='w-1/2 border border-gray-300 text-gray-700 font-semibold py-3 rounded-xl'>
+          Back
+        </button>
         {timeLeft <= 0 && (
           <button
             onClick={() => setTimeLeft(180)} // Resets/Extends timer

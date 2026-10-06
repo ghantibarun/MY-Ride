@@ -44,6 +44,9 @@ const Home = () => {
     const [fare, setFare] = useState({});
     const [vehicleType, setVehicleType] = useState(null);
     const [ride, setRide] = useState(null);
+    const [deletionModalOpen, setDeletionModalOpen] = useState(false);
+    const [deletionReason, setDeletionReason] = useState('');
+    const [deletionPending, setDeletionPending] = useState(false);
 
     // Refs for GSAP
     const baseSheetRef = useRef(null);
@@ -61,6 +64,10 @@ const Home = () => {
     const navigate = useNavigate();
     const { socket } = useContext(SocketContext);
     const { user } = useContext(UserDataContext);
+
+    useEffect(() => {
+        setDeletionPending(Boolean(user?.deletionRequested));
+    }, [user?.deletionRequested]);
 
     // BUG FIX: Detect if the user is in the "Booking Flow" (selecting cars, confirming, etc.)
     const isBookingFlow = vehiclePanel || confirmRidePanel || vehicleFound || waitingForDriver;
@@ -89,6 +96,15 @@ const Home = () => {
             socket.off('ride-confirmed', onRideConfirmed);
             socket.off('ride-started', onRideStarted);
         };
+    }, [navigate, socket]);
+
+    useEffect(() => {
+        const handleAccountDeleted = () => {
+            localStorage.removeItem('token');
+            navigate('/login', { replace: true });
+        };
+        socket.on('account-deleted', handleAccountDeleted);
+        return () => socket.off('account-deleted', handleAccountDeleted);
     }, [navigate, socket]);
 
     // ==========================================
@@ -138,6 +154,16 @@ const Home = () => {
     const handleUseCurrentLocation = async () => {
         await requestCurrentLocation('pickup');
         setIsMapSelectMode(false);
+    };
+
+    const requestAccountDeletion = async () => {
+        if (!deletionReason.trim()) return;
+        await axios.post(`${import.meta.env.VITE_BASE_URL}/users/request-deletion`, {
+            reason: deletionReason.trim(),
+        }, getAuthHeaders());
+        setDeletionPending(true);
+        setDeletionModalOpen(false);
+        setDeletionReason('');
     };
 
     const handleMapClickSelect = async (latlng) => {
@@ -251,9 +277,26 @@ const Home = () => {
     }
 
     async function createRide() {
-        await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/create`, {
+        const response = await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/create`, {
             pickup, destination, vehicleType
         }, getAuthHeaders());
+        setRide(response.data);
+        return response.data;
+    }
+
+    async function cancelBooking() {
+        if (ride?._id) {
+            await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/cancel`, {
+                rideId: ride._id,
+                reason: 'Cancelled during booking',
+            }, getAuthHeaders());
+        }
+        setVehicleFound(false);
+        setWaitingForDriver(false);
+        setVehiclePanel(false);
+        setConfirmRidePanel(false);
+        setRide(null);
+        setVehicleType(null);
     }
 
     // ==========================================
@@ -302,10 +345,15 @@ const Home = () => {
             <span className='bg-black text-white w-2 h-2 rounded-full animate-pulse'></span>
             MyRide
         </div>
+        <div className='absolute top-4 right-4 z-30 flex gap-2'>
+            {deletionPending && <span className='bg-orange-100 text-orange-800 px-3 py-2 rounded-lg text-xs font-semibold'>Deletion Request Pending Admin Approval</span>}
+            <button onClick={() => setDeletionModalOpen(true)} className='bg-white/95 rounded-lg px-3 py-2 text-xs font-semibold shadow'>Account</button>
+            <button onClick={() => { localStorage.removeItem('token'); navigate('/login') }} className='bg-white/95 rounded-lg px-3 py-2 text-xs font-semibold shadow'>Logout</button>
+        </div>
 
             {/* LIVE MAP */}
             <div className='absolute top-0 left-0 w-full h-full z-0'>
-                <LiveTracking pickupLocation={pickupCoordinates} destinationLocation={destinationCoordinates} onMapClick={handleMapClickSelect} activeField={activeField} onPickupPinDrag={(latlng) => handlePinAdjust(latlng, 'pickup')} onDestinationPinDrag={(latlng) => handlePinAdjust(latlng, 'destination')} />
+                <LiveTracking pickupLocation={pickupCoordinates} destinationLocation={destinationCoordinates} onMapClick={handleMapClickSelect} activeField={activeField} isBookingLocked={Boolean(vehiclePanel || confirmRidePanel || vehicleFound || waitingForDriver || !isMapSelectMode)} onPickupPinDrag={(latlng) => handlePinAdjust(latlng, 'pickup')} onDestinationPinDrag={(latlng) => handlePinAdjust(latlng, 'destination')} />
             </div>
 
             {/* MAP SELECTION HEADER */}
@@ -374,17 +422,25 @@ const Home = () => {
 
             {/* RIDE FLOW PANELS */}
             <div ref={vehiclePanelRef} className='fixed w-full z-40 bottom-0 bg-white px-3 py-10 pt-12 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] rounded-t-3xl translate-y-[120%] opacity-0 pointer-events-none'>
-                <VehiclePanel selectVehicle={setVehicleType} fare={fare} setConfirmRidePanel={setConfirmRidePanel} setVehiclePanel={setVehiclePanel} />
+                <VehiclePanel selectVehicle={setVehicleType} fare={fare} setConfirmRidePanel={setConfirmRidePanel} setVehiclePanel={setVehiclePanel} onCancel={cancelBooking} />
             </div>
             <div ref={confirmRidePanelRef} className='fixed w-full z-40 bottom-0 bg-white px-3 py-6 pt-12 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] rounded-t-3xl translate-y-[120%] opacity-0 pointer-events-none'>
-                <ConfirmRide createRide={createRide} pickup={pickup} destination={destination} fare={fare} vehicleType={vehicleType} setConfirmRidePanel={setConfirmRidePanel} setVehicleFound={setVehicleFound} />
+                <ConfirmRide createRide={createRide} pickup={pickup} destination={destination} fare={fare} vehicleType={vehicleType} setConfirmRidePanel={setConfirmRidePanel} setVehicleFound={setVehicleFound} onCancel={cancelBooking} />
             </div>
             <div ref={vehicleFoundRef} className='fixed w-full z-40 bottom-0 bg-white px-4 py-6 pt-10 pb-16 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] rounded-t-3xl translate-y-[120%] opacity-0 pointer-events-none max-h-[85vh] overflow-y-auto'>
-                <LookingForDriver createRide={createRide} pickup={pickup} destination={destination} fare={fare} vehicleType={vehicleType} setVehicleFound={setVehicleFound} />
+                <LookingForDriver ride={ride} rideId={ride?._id} isSearching={vehicleFound} pickup={pickup} destination={destination} fare={fare} vehicleType={vehicleType} setVehicleFound={setVehicleFound} onCancel={cancelBooking} />
             </div>
             <div ref={waitingForDriverRef} className='fixed w-full z-40 bottom-0 bg-white px-3 py-6 pt-12 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] rounded-t-3xl translate-y-[120%] opacity-0 pointer-events-none'>
-                <WaitingForDriver ride={ride} setVehicleFound={setVehicleFound} setWaitingForDriver={setWaitingForDriver} waitingForDriver={waitingForDriver} />
+                <WaitingForDriver ride={ride} setVehicleFound={setVehicleFound} setWaitingForDriver={setWaitingForDriver} waitingForDriver={waitingForDriver} onCancel={cancelBooking} />
             </div>
+            {deletionModalOpen && <div className='fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-5'>
+                <div className='bg-white rounded-2xl p-6 w-full max-w-md'>
+                    <h2 className='text-xl font-bold'>Request Account Removal</h2>
+                    <p className='text-sm text-gray-500 mt-2'>Tell the operations team why you want to remove your account.</p>
+                    <textarea value={deletionReason} onChange={(event) => setDeletionReason(event.target.value)} className='w-full border rounded-lg p-3 mt-4' rows='4' placeholder='Reason' />
+                    <div className='flex gap-3 mt-4'><button onClick={() => setDeletionModalOpen(false)} className='flex-1 border rounded-lg py-2'>Cancel</button><button onClick={requestAccountDeletion} disabled={!deletionReason.trim() || deletionPending} className='flex-1 bg-red-600 text-white rounded-lg py-2 disabled:opacity-50'>Submit Request</button></div>
+                </div>
+            </div>}
         </div>
     );
 };

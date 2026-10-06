@@ -67,6 +67,12 @@ module.exports.confirmRide = async (req, res) => {
     const { rideId } = req.body;
 
     try {
+        if (req.captain?.isBlocked) {
+            return res.status(403).json({
+                message: `Your Captain account has been blocked by Admin: ${req.captain.blockReason || 'Policy violation'}`,
+                isBlocked: true,
+            });
+        }
         const ride = await rideService.confirmRide({ rideId, captain: req.captain });
 
         sendMessageToSocketId(ride.user.socketId, {
@@ -150,6 +156,12 @@ module.exports.cancelRide = async (req, res) => {
 
     try {
         const ride = await rideService.cancelRide({ rideId, user: req.user._id, reason });
+        if (ride.captain?.socketId) {
+            sendMessageToSocketId(ride.captain.socketId, {
+                event: 'ride-cancelled',
+                data: ride
+            });
+        }
         sendMessageToSocketId(ride.user.socketId, {
             event: 'ride-cancelled',
             data: ride

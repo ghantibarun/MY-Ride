@@ -217,6 +217,7 @@ module.exports.getCaptainsInTheRadius = async (ltd, lng, radius) => {
                 _id: { $in: captainIds },
                 status: 'active',
                 kycStatus: 'verified',
+                isBlocked: { $ne: true },
             });
         } catch (error) {
             console.error('Redis geospatial lookup error:', error.message);
@@ -226,6 +227,7 @@ module.exports.getCaptainsInTheRadius = async (ltd, lng, radius) => {
     return captainModel.find({
         status: 'active',
         kycStatus: 'verified',
+        isBlocked: { $ne: true },
         locationGeo: {
             $geoWithin: {
                 $centerSphere: [[lng, ltd], radius / 6371]
@@ -240,6 +242,16 @@ module.exports.updateCaptainLocation = async (captainId, ltd, lng) => {
             await redis.geoadd(captainGeoKey, lng, ltd, String(captainId));
         } catch (error) {
             console.error('Redis location update error:', error.message);
+        }
+    }
+};
+
+module.exports.removeCaptainLocation = async (captainId) => {
+    if (redis && redis.status === 'ready') {
+        try {
+            await redis.zrem(captainGeoKey, String(captainId));
+        } catch (error) {
+            console.error('Redis location removal error:', error.message);
         }
     }
 };

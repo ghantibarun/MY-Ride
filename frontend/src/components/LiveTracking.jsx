@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet';
 import { useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -43,10 +43,10 @@ const MapRecenter = ({ center }) => {
     return null;
 };
 
-const MapClickSelector = ({ onMapClick, activeField }) => {
+const MapClickSelector = ({ onMapClick, activeField, isBookingLocked }) => {
     useMapEvents({
         click(event) {
-            if (!onMapClick || !activeField) return;
+            if (isBookingLocked || !onMapClick || !activeField) return;
             onMapClick(event.latlng);
         }
     });
@@ -54,7 +54,29 @@ const MapClickSelector = ({ onMapClick, activeField }) => {
     return null;
 };
 
-const LiveTracking = ({ pickupLocation, destinationLocation, onMapClick, activeField, onPickupPinDrag, onDestinationPinDrag }) => {
+const RouteViewport = ({ pickupLocation, destinationLocation }) => {
+    const map = useMap();
+    const recenter = useCallback(() => {
+        if (!pickupLocation || !destinationLocation) return;
+        map.fitBounds(L.latLngBounds(
+            [pickupLocation.lat, pickupLocation.lng],
+            [destinationLocation.lat, destinationLocation.lng]
+        ), {
+            paddingBottomRight: [40, 320],
+            paddingTopLeft: [40, 80],
+            maxZoom: 15,
+            animate: true,
+        });
+    }, [destinationLocation, map, pickupLocation]);
+
+    useEffect(() => {
+        recenter();
+    }, [recenter]);
+
+    return <button type='button' onClick={recenter} className='leaflet-top leaflet-right mt-2 mr-2 bg-white rounded-lg shadow px-3 py-2 text-gray-800' aria-label='Re-center route'><i className='ri-focus-3-line'></i></button>;
+};
+
+const LiveTracking = ({ pickupLocation, destinationLocation, onMapClick, activeField, isBookingLocked = false, onPickupPinDrag, onDestinationPinDrag }) => {
     const [currentPosition, setCurrentPosition] = useState(defaultCenter);
     const [routePoints, setRoutePoints] = useState([]);
 
@@ -145,7 +167,8 @@ const LiveTracking = ({ pickupLocation, destinationLocation, onMapClick, activeF
         <div className='h-full w-full'>
             <MapContainer center={[mapCenter.lat, mapCenter.lng]} zoom={13} style={{ height: '100%', width: '100%' }}>
                 <MapRecenter center={mapCenter} />
-                <MapClickSelector onMapClick={onMapClick} activeField={activeField} />
+                <MapClickSelector onMapClick={onMapClick} activeField={activeField} isBookingLocked={isBookingLocked} />
+                <RouteViewport pickupLocation={pickupLocation} destinationLocation={destinationLocation} />
                 <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
@@ -159,7 +182,7 @@ const LiveTracking = ({ pickupLocation, destinationLocation, onMapClick, activeF
                     <Marker
                         position={[pickupLocation.lat, pickupLocation.lng]}
                         icon={pickupIcon}
-                        draggable
+                        draggable={!isBookingLocked}
                         eventHandlers={{
                             dragend: (event) => {
                                 const nextPoint = event.target.getLatLng();
@@ -173,7 +196,7 @@ const LiveTracking = ({ pickupLocation, destinationLocation, onMapClick, activeF
                     <Marker
                         position={[destinationLocation.lat, destinationLocation.lng]}
                         icon={destinationIcon}
-                        draggable
+                        draggable={!isBookingLocked}
                         eventHandlers={{
                             dragend: (event) => {
                                 const nextPoint = event.target.getLatLng();

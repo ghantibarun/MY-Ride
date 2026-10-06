@@ -36,6 +36,11 @@ router.post('/verify-otp',
 router.get('/profile', authMiddleware.authUser, userController.getUserProfile)
 
 router.get('/logout', authMiddleware.authUser, userController.logoutUser)
+router.post('/request-deletion',
+    authMiddleware.authUser,
+    body('reason').isString().isLength({ min: 3, max: 500 }),
+    userController.requestDeletion
+)
 
 
 

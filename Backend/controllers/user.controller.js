@@ -2,6 +2,7 @@ const userModel = require('../models/user.model');
 const userService = require('../services/user.service');
 const { validationResult } = require('express-validator');
 const blackListTokenModel = require('../models/blackListToken.model');
+const { sendMessageToAdminRoom } = require('../socket');
 
 module.exports.registerUser = async (req, res, next) => {
   try{
@@ -88,3 +89,20 @@ module.exports.logoutUser = async (req, res, next) => {
     res.status(200).json({ message: 'Logged out' });
 
 }
+
+module.exports.requestDeletion = async (req, res) => {
+  const reason = typeof req.body.reason === 'string' ? req.body.reason.trim() : '';
+  if (!reason) return res.status(400).json({ message: 'A deletion reason is required' });
+
+  const user = await userModel.findByIdAndUpdate(req.user._id, {
+    deletionRequested: true,
+    deletionReason: reason,
+    deletionRequestedAt: new Date(),
+  }, { new: true }).select('fullname email phone deletionRequested deletionReason deletionRequestedAt');
+
+  sendMessageToAdminRoom({
+    event: 'admin-deletion-request',
+    data: { accountType: 'user', account: user },
+  });
+  return res.status(200).json(user);
+};

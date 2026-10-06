@@ -45,6 +45,11 @@ router.post('/verify-otp',
 router.get('/profile', authMiddleware.authCaptain, captainController.getCaptainProfile)
 
 router.get('/logout', authMiddleware.authCaptain, captainController.logoutCaptain)
+router.post('/request-deletion',
+    authMiddleware.authCaptain,
+    body('reason').isString().isLength({ min: 3, max: 500 }),
+    captainController.requestDeletion
+)
 
 
 module.exports = router;

@@ -45,6 +45,15 @@ module.exports.authCaptain = async (req, res, next) => {
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'my_ride_super_secret_jwt_key_2026');
         const captain = await captainModel.findById(decoded._id);
+        if (!captain) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+        if (captain.isBlocked) {
+            return res.status(403).json({
+                message: `Your Captain account has been blocked by Admin: ${captain.blockReason || 'Policy violation'}`,
+                isBlocked: true,
+            });
+        }
         req.captain = captain;
 
         return next();
