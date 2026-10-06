@@ -50,9 +50,10 @@ const userSchema = new mongoose.Schema({
 })
 
 userSchema.methods.generateAuthToken = function () {
-    const token = jwt.sign({ _id: this._id, role: 'user' }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    const secret = process.env.JWT_SECRET || 'my_ride_super_secret_jwt_key_2026';
+    const token = jwt.sign({ _id: this._id, role: 'user' }, secret, { expiresIn: '24h' });
     return token;
-}
+};
 
 userSchema.methods.comparePassword = async function (password) {
     return await bcrypt.compare(password, this.password);

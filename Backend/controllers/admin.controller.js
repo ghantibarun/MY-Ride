@@ -8,8 +8,8 @@ const sosAlertModel = require('../models/sosAlert.model');
 const { sendMessageToSocketId } = require('../socket');
 
 const adminEmail = () => process.env.ADMIN_EMAIL || 'admin@myride.local';
-const adminPassword = () => process.env.ADMIN_PASSWORD || 'change-me-local-admin-password';
-const adminSecret = () => process.env.ADMIN_SECRET_KEY || 'local-admin-secret';
+const adminPassword = () => process.env.ADMIN_PASSWORD || 'Barun123';
+const adminSecret = () => process.env.ADMIN_SECRET_KEY || 'Barun123';
 
 module.exports.login = async (req, res) => {
     const errors = validationResult(req);

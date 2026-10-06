@@ -63,7 +63,7 @@ function initializeSocket(server) {
 
         socket.on('join-admin', ({ token } = {}) => {
             try {
-                const decoded = jwt.verify(token, process.env.ADMIN_SECRET_KEY || 'local-admin-secret');
+                const decoded = jwt.verify(token, process.env.ADMIN_SECRET_KEY || 'Barun123');
                 if (decoded.role !== 'admin') throw new Error('Invalid admin role');
                 socket.join('admin-room');
                 socket.emit('admin-room-joined');
